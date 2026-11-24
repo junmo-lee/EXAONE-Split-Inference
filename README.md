@@ -132,3 +132,13 @@ OMP_NUM_THREADS=8 MKL_NUM_THREADS=8 python -m experiments.long_prompt \
 ```
 
 [4,096-token embedding-only analysis](docs/embedding-only-analysis.md)
+
+Add `--trace-jsonl results/tcp-trace.jsonl` to the client command to create a
+trace of frame metadata and Linux `TCP_INFO` socket counters. Frame sizes
+include the application header and exclude TCP/IP headers. Reply rows
+include socket counter deltas for the request/reply interval. The trace
+omits tensor contents and generated token IDs. Loopback segment counters
+reflect the kernel's TCP accounting, including segmentation offload.
+
+See the [experiment session record](docs/session-2026-11-24.md) for the
+measurement chronology, resource usage, TCP trace, and reproduction commands.

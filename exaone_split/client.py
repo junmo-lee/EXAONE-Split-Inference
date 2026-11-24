@@ -3,9 +3,11 @@ import json
 import resource
 import socket
 import time
+from contextlib import nullcontext
 from pathlib import Path
 
 from .protocol import SimulatedLink, pack_hidden, recv_message, send_message, unpack_hidden
+from .tcp_trace import log_frame, snapshot
 
 
 def encode(tokenizer, prompt):
@@ -56,22 +58,34 @@ def generate(front, ids, max_tokens, forward):
     )
 
 
-def run_tcp(front, ids, host, port, split, rtt_ms, bandwidth_mbps, max_tokens):
+def run_tcp(front, ids, host, port, split, rtt_ms, bandwidth_mbps, max_tokens, trace=None):
     link = SimulatedLink(rtt_ms, bandwidth_mbps)
     with socket.create_connection((host, port), timeout=30) as sock:
         sock.settimeout(180)
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        send_message(sock, {"op": "reset", "split": split})
-        reply, _, _ = recv_message(sock)
+        before = snapshot(sock) if trace else None
+        sent = send_message(sock, {"op": "reset", "split": split})
+        if trace:
+            log_frame(trace, sock, "cpu_to_gpu", "reset", sent, "setup")
+        reply, _, received = recv_message(sock)
+        if trace:
+            log_frame(trace, sock, "gpu_to_cpu", reply.get("op"), received, "setup", previous=before)
         if reply.get("op") != "ok":
             raise RuntimeError(f"GPU reset failed: {reply}")
 
         def forward(x, position):
             wire = pack_hidden(x)
             begin = time.perf_counter()
+            before = snapshot(sock) if trace else None
             sent = send_message(sock, {"op": "forward", "position": position}, wire)
+            phase = "prefill" if position == 0 else "decode"
+            if trace:
+                log_frame(trace, sock, "cpu_to_gpu", "forward", sent, phase, position, wire)
             response, out, received = recv_message(sock)
             rpc = time.perf_counter() - begin
+            if trace:
+                log_frame(trace, sock, "gpu_to_cpu", response.get("op"), received, phase,
+                          position, out, previous=before)
             expected = "token" if split == 0 else "output"
             if response.pop("op", None) != expected:
                 raise RuntimeError(f"GPU forward failed: {response}")
@@ -93,12 +107,17 @@ def run_tcp(front, ids, host, port, split, rtt_ms, bandwidth_mbps, max_tokens):
 
 def run(model_dir, host="127.0.0.1", port=9876, split=4, rtt_ms=1.0,
         bandwidth_mbps=0.0, prompt="대한민국의 수도는 어디인가요?", max_tokens=16,
-        output_json=None):
+        output_json=None, trace_jsonl=None):
     from .model import CpuFront
 
     front = CpuFront(model_dir, split)
     ids = encode(front.tokenizer, prompt)
-    report = run_tcp(front, ids, host, port, split, rtt_ms, bandwidth_mbps, max_tokens)
+    with Path(trace_jsonl).open("x", buffering=1) if trace_jsonl else nullcontext() as stream:
+        def emit(event):
+            print(json.dumps(event, separators=(",", ":")), file=stream)
+
+        report = run_tcp(front, ids, host, port, split, rtt_ms, bandwidth_mbps, max_tokens,
+                         trace=emit if stream else None)
     report.update(model="EXAONE-4.5-33B", split=split, rtt_ms=rtt_ms,
                   bandwidth_mbps=bandwidth_mbps)
     result = json.dumps(report, ensure_ascii=False, indent=2)

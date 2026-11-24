@@ -23,6 +23,7 @@ def main():
     client.add_argument("--prompt", default="대한민국의 수도는 어디인가요?")
     client.add_argument("--max-tokens", type=int, default=16)
     client.add_argument("--output-json")
+    client.add_argument("--trace-jsonl", help="Create a frame and TCP_INFO trace without tensor contents")
     bench = sub.add_parser("benchmark")
     bench.add_argument("--dir", required=True)
     bench.add_argument("--output-json", required=True)
@@ -64,7 +65,7 @@ def main():
     elif args.mode == "client":
         from .client import run
         run(args.dir, args.host, args.port, args.split, args.rtt_ms,
-            args.bandwidth_mbps, args.prompt, args.max_tokens, args.output_json)
+            args.bandwidth_mbps, args.prompt, args.max_tokens, args.output_json, args.trace_jsonl)
 
 
 if __name__ == "__main__":
