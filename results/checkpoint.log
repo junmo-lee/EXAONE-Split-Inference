@@ -1,0 +1,1 @@
+{'model_type': 'exaone4_5', 'text_model_type': 'exaone4_5_text', 'layers': 64, 'hidden_size': 5120, 'decoder_tensor_count': 704, 'quantization': 'BF16 official checkpoint; NF4 runtime quantization on GPU shard'}

@@ -1,0 +1,9 @@
+test_empty_response (test_protocol.TestProtocol.test_empty_response) ... ok
+test_simulated_latency (test_protocol.TestProtocol.test_simulated_latency) ... ok
+test_tensor_roundtrip (test_protocol.TestProtocol.test_tensor_roundtrip) ... ok
+test_cached_split_matches_official_across_sliding_window (test_split.TestSplit.test_cached_split_matches_official_across_sliding_window) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.188s
+
+OK

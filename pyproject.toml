@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=70", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "exaone-split-lab"
+version = "0.1.0"
+description = "Public-data split inference benchmark for EXAONE 4.5"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.26", "torch>=2.6", "transformers==5.20.0", "accelerate>=1.6", "huggingface-hub>=0.30", "safetensors>=0.5", "bitsandbytes>=0.46"]
+
+[project.scripts]
+exaone-split = "exaone_split.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["exaone_split*"]
