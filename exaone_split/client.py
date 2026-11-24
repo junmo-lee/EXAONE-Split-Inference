@@ -21,7 +21,7 @@ def generate(front, ids, max_tokens, forward):
     if max_tokens < 1:
         raise ValueError("max_tokens must be positive")
     initial_tokens = ids.shape[1]
-    front.shard.reset()
+    front.reset()
     position = 0
     records, produced = [], []
     for step in range(max_tokens):
@@ -72,10 +72,17 @@ def run_tcp(front, ids, host, port, split, rtt_ms, bandwidth_mbps, max_tokens):
             sent = send_message(sock, {"op": "forward", "position": position}, wire)
             response, out, received = recv_message(sock)
             rpc = time.perf_counter() - begin
-            if response.pop("op", None) != "output":
+            expected = "token" if split == 0 else "output"
+            if response.pop("op", None) != expected:
                 raise RuntimeError(f"GPU forward failed: {response}")
             injected = link.delay(sent, received)
-            return unpack_hidden(out), dict(
+            if split == 0:
+                result = response.pop("token_id", None)
+                if out is not None or type(result) is not int or not 0 <= result < front.config.vocab_size:
+                    raise ValueError("Invalid GPU token ID")
+            else:
+                result = unpack_hidden(out)
+            return result, dict(
                 rpc_seconds=rpc, injected_seconds=injected,
                 tcp_and_framing_seconds=rpc - response["gpu_seconds"] - response["transfer_seconds"],
                 bytes_sent=sent, bytes_received=received, **response,

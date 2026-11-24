@@ -1,4 +1,5 @@
 """Single-client GPU shard for a trusted experimental link."""
+import math
 import resource
 import socket
 import time
@@ -18,7 +19,7 @@ def process_peak_rss_kib():
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
 
 
-def gpu_forward(shard, tensor, position):
+def gpu_forward(shard, tensor, position, head=None):
     import torch
 
     begin = time.perf_counter()
@@ -26,10 +27,13 @@ def gpu_forward(shard, tensor, position):
     transfer_in = time.perf_counter() - begin
     begin = time.perf_counter()
     out = shard.forward(x, position)
+    if head is not None:
+        out = head.next_token(out)
     torch.cuda.synchronize(shard.device)
     gpu_seconds = time.perf_counter() - begin
     begin = time.perf_counter()
-    out = out[:, -1:, :].to("cpu")
+    if head is None:
+        out = out[:, -1:, :].to("cpu")
     return out, dict(
         gpu_seconds=gpu_seconds,
         transfer_seconds=transfer_in + time.perf_counter() - begin,
@@ -39,16 +43,20 @@ def gpu_forward(shard, tensor, position):
     )
 
 
-def serve(model_dir, host="127.0.0.1", port=9876, split=4, quantize=True):
+def serve(model_dir, host="127.0.0.1", port=9876, split=4, quantize=True, idle_timeout=180):
     import torch
 
-    from .model import SplitShard
+    from .checkpoint import Checkpoint
+    from .model import OutputHead, SplitShard
 
+    if not math.isfinite(idle_timeout) or idle_timeout <= 0:
+        raise ValueError("Idle timeout must be finite and positive")
     if not torch.cuda.is_available():
         raise RuntimeError("CUDA GPU unavailable")
-    if not 0 < split < 64:
-        raise ValueError("split must be in 1..63")
+    if not 0 <= split < 64:
+        raise ValueError("split must be in 0..63")
     shard = SplitShard(model_dir, split, 64, "cuda:0", quantize=quantize)
+    head = OutputHead(Checkpoint(model_dir), shard.config, shard.device) if split == 0 else None
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind((host, port))
@@ -57,7 +65,7 @@ def serve(model_dir, host="127.0.0.1", port=9876, split=4, quantize=True):
         while True:
             conn, _ = server.accept()
             with conn:
-                conn.settimeout(180)
+                conn.settimeout(idle_timeout)
                 conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 reset = False
                 try:
@@ -76,8 +84,11 @@ def serve(model_dir, host="127.0.0.1", port=9876, split=4, quantize=True):
                             if (x.ndim != 3 or x.shape[0] != 1 or x.shape[2] != shard.hidden_size
                                     or type(position) is not int):
                                 raise ValueError("Invalid hidden tensor or position")
-                            out, metrics = gpu_forward(shard, x, position)
-                            send_message(conn, {"op": "output", **metrics}, pack_hidden(out))
+                            out, metrics = gpu_forward(shard, x, position, head)
+                            if head is None:
+                                send_message(conn, {"op": "output", **metrics}, pack_hidden(out))
+                            else:
+                                send_message(conn, {"op": "token", "token_id": out, **metrics})
                         else:
                             raise ValueError("Unexpected operation or missing reset")
                 except OSError:

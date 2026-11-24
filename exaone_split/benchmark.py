@@ -203,7 +203,7 @@ def run_benchmark(args):
                     if server.poll() is not None or time.monotonic() >= deadline:
                         raise RuntimeError(f"GPU server did not start. See {log}")
                     time.sleep(0.25)
-                conditions = CONDITIONS if split == 4 else [(1, 0)]
+                conditions = CONDITIONS if split in (0, 4) else [(1, 0)]
                 run_tcp(front, ids, "127.0.0.1", port, split, 1, 0, 2)
                 for rtt, bandwidth in conditions:
                     for repeat in range(args.repetitions):

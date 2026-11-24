@@ -16,6 +16,8 @@ def main():
         cmd.add_argument("--port", type=int, default=9876)
         cmd.add_argument("--split", type=int, default=4)
     server.add_argument("--no-quant", action="store_true")
+    server.add_argument("--idle-timeout", type=float, default=180,
+                        help="Seconds to wait for the next request")
     client.add_argument("--rtt-ms", type=float, default=1.0)
     client.add_argument("--bandwidth-mbps", type=float, default=0.0)
     client.add_argument("--prompt", default="대한민국의 수도는 어디인가요?")
@@ -33,7 +35,7 @@ def main():
     args = p.parse_args()
     if args.mode == "benchmark":
         if min(args.threads, args.repetitions, args.max_tokens) < 1 or any(
-            not 0 < split < 64 for split in args.splits
+            not 0 <= split < 64 for split in args.splits
         ):
             p.error("Invalid thread/repetition/token count or split")
         from .benchmark import run_benchmark
@@ -58,7 +60,7 @@ def main():
                "quantization":"BF16 official checkpoint; NF4 runtime quantization on GPU shard"})
     elif args.mode == "server":
         from .server import serve
-        serve(args.dir, args.host, args.port, args.split, not args.no_quant)
+        serve(args.dir, args.host, args.port, args.split, not args.no_quant, args.idle_timeout)
     elif args.mode == "client":
         from .client import run
         run(args.dir, args.host, args.port, args.split, args.rtt_ms,

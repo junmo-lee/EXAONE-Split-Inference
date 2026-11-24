@@ -118,3 +118,17 @@ use 1 ms. JSON includes token IDs, per-step timing, latency and throughput
 summaries, process peak RSS, CUDA allocator peaks, and device-wide NVIDIA samples.
 The simulated delay is added once per forward exchange and includes an optional
 sum of serialization times in both directions.
+
+## CPU embedding-only split
+
+Set `--split 0` on both endpoints to keep chat templating, tokenization,
+embedding lookup, and text decoding on the client. The server runs all 64
+decoder layers, final norm, LM head, and greedy token selection. It returns
+one token ID per step. Run the long-prompt comparison from the project root.
+
+```bash
+OMP_NUM_THREADS=8 MKL_NUM_THREADS=8 python -m experiments.long_prompt \
+  --dir /root/exaone-model --split 0 --output results/embedding-only-rerun.json
+```
+
+[4,096-token embedding-only analysis](docs/embedding-only-analysis.md)

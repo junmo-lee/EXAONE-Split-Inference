@@ -155,3 +155,8 @@ OMP_NUM_THREADS=2 python -m unittest discover -s tests -v
 OMP_NUM_THREADS=8 MKL_NUM_THREADS=8 python -u -m exaone_split.cli benchmark \
   --dir /root/exaone-model --output-json results/benchmark.json
 ```
+
+## 후속 장문 실험
+
+같은 4,096토큰 입력에서 CPU 4층 분할과 CPU 임베딩 전용 분할을 각각
+GPU-only와 비교했다. [임베딩 분할 성능 분석](docs/embedding-only-analysis.md)

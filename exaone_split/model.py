@@ -97,37 +97,52 @@ class SplitShard:
         return x
 
 
+class OutputHead:
+    def __init__(self, checkpoint, config, device):
+        import torch
+        from transformers.models.exaone4.modeling_exaone4 import Exaone4RMSNorm
+
+        self.norm = make_empty(Exaone4RMSNorm, config.hidden_size, config.rms_norm_eps)
+        load_module(self.norm, checkpoint, PREFIX + "norm.", torch.bfloat16).to(device)
+        self.lm_head = make_empty(torch.nn.Linear, config.hidden_size, config.vocab_size, False)
+        load_module(self.lm_head, checkpoint, "lm_head.", torch.bfloat16).to(device)
+        self.device = device
+
+    def logits(self, hidden):
+        import torch
+
+        with torch.inference_mode():
+            return self.lm_head(self.norm(hidden[:, -1].to(self.device, dtype=torch.bfloat16))).float()
+
+    def next_token(self, hidden):
+        return int(self.logits(hidden).argmax(dim=-1).item())
+
+
 class CpuFront:
     def __init__(self, model_dir, split=4):
         import torch
-        from transformers.models.exaone4.modeling_exaone4 import Exaone4RMSNorm
         from transformers import AutoTokenizer
 
         self.torch = torch
         self.config = get_config(model_dir)
         self.tokenizer = AutoTokenizer.from_pretrained(str(model_dir))
-        self.shard = SplitShard(model_dir, 0, split, "cpu")
+        self.shard = SplitShard(model_dir, 0, split, "cpu") if split else None
         cp = Checkpoint(model_dir)
         self.embedding = make_empty(torch.nn.Embedding, self.config.vocab_size, self.config.hidden_size)
         load_module(self.embedding, cp, PREFIX + "embed_tokens.", torch.bfloat16)
-        self.norm = make_empty(Exaone4RMSNorm, self.config.hidden_size, self.config.rms_norm_eps)
-        load_module(self.norm, cp, PREFIX + "norm.", torch.bfloat16)
-        self.lm_head = make_empty(torch.nn.Linear, self.config.hidden_size, self.config.vocab_size, False)
-        if "lm_head.weight" in cp.key_map:
-            load_module(self.lm_head, cp, "lm_head.", torch.bfloat16)
-        else:
-            raise KeyError("Official untied checkpoint requires lm_head.weight")
-        self.shard.reset()
+        self.head = OutputHead(cp, self.config, "cpu") if split else None
+
+    def reset(self):
+        if self.shard is not None:
+            self.shard.reset()
 
     def embed_and_run(self, ids, position):
         with self.torch.inference_mode():
             x = self.embedding(ids)
-            return self.shard.forward(x, position)
+            return self.shard.forward(x, position) if self.shard is not None else x
 
     def logits(self, hidden):
-        with self.torch.inference_mode():
-            h = self.norm(hidden.to(device="cpu", dtype=self.torch.bfloat16))[:, -1]
-            return self.lm_head(h).float()
+        return self.head.logits(hidden)
 
     def next_token(self, hidden):
-        return int(self.logits(hidden).argmax(dim=-1).item())
+        return self.head.next_token(hidden) if self.head is not None else hidden
